@@ -197,7 +197,7 @@ namespace Microsoft.Data.Entity.Metadata
         {
             Check.NotEmpty(properties, "properties");
 
-            var key = TryGetKey(properties);
+            var key = TryGetPrimaryKey(properties);
             if (key != null)
             {
                 throw new InvalidOperationException(Strings.DuplicateKey(Property.Format(properties), Name));
@@ -210,7 +210,14 @@ namespace Microsoft.Data.Entity.Metadata
                     Strings.KeyPropertiesWrongEntity(Property.Format(properties), Name));
             }
 
-            _keys.Value.Add(key);
+            var currentIndex = _keys.Value.BinarySearch(key, KeyComparer.Instance);
+            if (currentIndex >= 0)
+            {
+                throw new InvalidOperationException(Strings.DuplicateKey(Property.Format(properties), Name));
+            }
+
+            var newIndex = ~currentIndex;
+            _keys.Value.Insert(newIndex, key);
 
             return key;
         }
@@ -334,19 +341,20 @@ namespace Microsoft.Data.Entity.Metadata
             Check.NotEmpty(properties, "properties");
             Check.NotNull(referencedKey, "referencedKey");
 
-            var foreignKey = TryGetForeignKey(properties);
-            if (foreignKey != null)
-            {
-                throw new InvalidOperationException(Strings.DuplicateForeignKey(Property.Format(foreignKey.Properties), Name));
-            }
-
-            foreignKey = new ForeignKey(properties, referencedKey);
+            var foreignKey = new ForeignKey(properties, referencedKey);
             if (foreignKey.EntityType != this)
             {
                 throw new ArgumentException(Strings.ForeignKeyPropertiesWrongEntity(Property.Format(properties), Name));
             }
 
-            _foreignKeys.Value.Add(foreignKey);
+            var currentIndex = _foreignKeys.Value.BinarySearch(foreignKey, KeyComparer.Instance);
+            if (currentIndex >= 0)
+            {
+                throw new InvalidOperationException(Strings.DuplicateForeignKey(Property.Format(foreignKey.Properties), Name));
+            }
+
+            var newIndex = ~currentIndex;
+            _foreignKeys.Value.Insert(newIndex, foreignKey);
 
             UpdateOriginalValueIndexes();
 
@@ -455,7 +463,8 @@ namespace Microsoft.Data.Entity.Metadata
                 throw new InvalidOperationException(Strings.NavigationAlreadyOwned(navigation.Name, Name, navigation.EntityType.Name));
             }
 
-            if (TryGetNavigation(name) != null)
+            var currentIndex = _navigations.Value.BinarySearch(navigation, NavigationComparer.Instance);
+            if (currentIndex >= 0)
             {
                 throw new InvalidOperationException(Strings.DuplicateNavigation(navigation.Name, Name));
             }
@@ -503,7 +512,8 @@ namespace Microsoft.Data.Entity.Metadata
                 throw new InvalidOperationException(Strings.MultipleNavigations(navigation.Name, otherNavigation.Name, Name));
             }
 
-            _navigations.Value.Add(navigation);
+            var newIndex = ~currentIndex;
+            _navigations.Value.Insert(newIndex, navigation);
 
             return navigation;
         }
@@ -571,20 +581,23 @@ namespace Microsoft.Data.Entity.Metadata
         {
             Check.NotEmpty(properties, "properties");
 
-            var index = TryGetIndex(properties);
-            if (index != null)
+            var index = new Index(properties);
+
+            var currentIndex = _indexes.Value.BinarySearch(index, IndexComparer.Instance);
+
+            if (currentIndex >= 0)
             {
                 throw new InvalidOperationException(Strings.DuplicateIndex(Property.Format(index.Properties), Name));
             }
 
-            index = new Index(properties);
             if (index.EntityType != this)
             {
                 throw new ArgumentException(
                     Strings.IndexPropertiesWrongEntity(Property.Format(properties), Name));
             }
 
-            _indexes.Value.Add(index);
+            var newIndex = ~currentIndex;
+            _indexes.Value.Insert(newIndex, index);
 
             return index;
         }
@@ -936,6 +949,75 @@ namespace Microsoft.Data.Entity.Metadata
             }
 
             public int Compare(Property x, Property y)
+            {
+                return StringComparer.Ordinal.Compare(x.Name, y.Name);
+            }
+        }
+
+        private class PropertyListComparer : IComparer<IReadOnlyList<Property>>
+        {
+            public static readonly PropertyListComparer Instance = new PropertyListComparer();
+
+            private PropertyListComparer()
+            {
+            }
+
+            public int Compare(IReadOnlyList<Property> x, IReadOnlyList<Property> y)
+            {
+                var result = x.Count - y.Count;
+
+                if (result != 0)
+                {
+                    return result;
+                }
+
+                var index = 0;
+                while (result == 0 && index < x.Count)
+                {
+                    result = PropertyComparer.Instance.Compare(x[index], y[index]);
+                    index++;
+                }
+                return result;
+            }
+        }
+
+        private class IndexComparer : IComparer<Index>
+        {
+            public static readonly IndexComparer Instance = new IndexComparer();
+
+            private IndexComparer()
+            {
+            }
+
+            public int Compare(Index x, Index y)
+            {
+                return PropertyListComparer.Instance.Compare(x.Properties, y.Properties);
+            }
+        }
+
+        private class KeyComparer : IComparer<Key>
+        {
+            public static readonly KeyComparer Instance = new KeyComparer();
+
+            private KeyComparer()
+            {
+            }
+
+            public int Compare(Key x, Key y)
+            {
+                return PropertyListComparer.Instance.Compare(x.Properties, y.Properties);
+            }
+        }
+
+        private class NavigationComparer : IComparer<Navigation>
+        {
+            public static readonly NavigationComparer Instance = new NavigationComparer();
+
+            private NavigationComparer()
+            {
+            }
+
+            public int Compare(Navigation x, Navigation y)
             {
                 return StringComparer.Ordinal.Compare(x.Name, y.Name);
             }
